@@ -1,5 +1,5 @@
 [build]
-command = "pip install -r requirements.txt"
+command = "pip install --user -r requirements.txt"
 publish = "."
 functions = "netlify/functions"
 
@@ -10,3 +10,6 @@ PYTHON_VERSION = "3.9"
 from = "/*"
 to = "/.netlify/functions/app"
 status = 200
+
+[functions]
+node_bundler = "esbuild"
