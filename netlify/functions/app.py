@@ -16,7 +16,7 @@ db = SQLAlchemy(app)
 # Twitter API v2設定
 CLIENT_ID = os.getenv('TWITTER_CLIENT_ID')
 CLIENT_SECRET = os.getenv('TWITTER_CLIENT_SECRET')
-CALLBACK_URL = os.environ.get('CALLBACK_URL', 'http://localhost:5000/callback')
+CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://mytaskkanri.netlify.app/callback')
 
 # データベースモデル
 class WorkSession(db.Model):
