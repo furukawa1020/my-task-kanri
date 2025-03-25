@@ -4,7 +4,7 @@ import tweepy
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from netlify_lambda_wsgi import make_aws_lambda_wsgi_handler
+import serverless_wsgi
 
 load_dotenv()
 
@@ -125,5 +125,5 @@ def get_stats():
         'daily_times': daily_times
     })
 
-# AWS Lambda handler
-handler = make_aws_lambda_wsgi_handler(app)
+def handler(event, context):
+    return serverless_wsgi.handle_request(app, event, context)
