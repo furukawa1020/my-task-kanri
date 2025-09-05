@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Work Timer</title>
+    <title>作業時間分析 - TaskKanri</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="container mt-5">
+    <h1 class="mb-4 text-center">TaskKanri - 作業時間分析</h1>
+    
     <div class="row">
         <!-- ポモドーロタイマー -->
-        <div class="col-md-6">
+        <div class="col-md-6 mb-4">
             <div class="card">
                 <div class="card-body">
                     <h2>ポモドーロタイマー</h2>
@@ -22,33 +24,87 @@
         </div>
 
         <!-- 作業記録フォーム -->
-        <div class="col-md-6">
+        <div class="col-md-6 mb-4">
             <div class="card">
                 <div class="card-body">
                     <h2>作業を記録</h2>
-                    <form action="{{ url_for('record_work') }}" method="POST">
+                    <form id="workForm" action="{{ url_for('record_work') }}" method="POST">
                         <div class="mb-3">
                             <label>作業時間（分）</label>
-                            <input type="number" name="duration" class="form-control" required>
+                            <input type="number" name="duration" id="duration" class="form-control" required>
                         </div>
                         <div class="mb-3">
                             <label>作業内容</label>
-                            <textarea name="description" class="form-control" required></textarea>
+                            <textarea name="description" id="description" class="form-control" required></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary">記録・ツイート</button>
+                        <button type="submit" class="btn btn-primary">記録する</button>
                     </form>
+                    
+                    <!-- IFTTT連携用 -->
+                    <div class="mt-3">
+                        <h5>IFTTTでツイートする</h5>
+                        <div class="mb-3">
+                            <label>IFTTTのWebhooks Key</label>
+                            <input type="text" id="iftttKey" class="form-control" placeholder="IFTTT Webhooks Key">
+                            <small class="text-muted">※IFTTTのWebhooks Key（https://ifttt.com/maker_webhooks/settings）</small>
+                        </div>
+                        <div class="mb-3">
+                            <label>イベント名</label>
+                            <input type="text" id="iftttEvent" class="form-control" placeholder="tweet_work" value="tweet_work">
+                            <small class="text-muted">※IFTTTのTwitterアプレットで設定したイベント名</small>
+                        </div>
+                        <button id="sendToIFTTT" class="btn btn-info">IFTTTでツイート</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- データソース切り替え -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h4>データソース</h4>
+                    <div class="btn-group" role="group">
+                        <input type="radio" class="btn-check" name="dataSource" id="sheetsSource" value="sheets" checked>
+                        <label class="btn btn-outline-primary" for="sheetsSource">Google Sheets</label>
+                        
+                        <input type="radio" class="btn-check" name="dataSource" id="localSource" value="local">
+                        <label class="btn btn-outline-primary" for="localSource">ローカルデータ</label>
+                    </div>
+                    <button id="refreshData" class="btn btn-outline-secondary ms-3">データ更新</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- 統計グラフ -->
-    <div class="row mt-4">
-        <div class="col-12">
+    <div class="row">
+        <div class="col-md-6 mb-4">
             <div class="card">
                 <div class="card-body">
-                    <h2>週間作業統計</h2>
+                    <h2>週間作業時間</h2>
+                    <div class="text-center mb-3">
+                        <h3 id="totalTime">読み込み中...</h3>
+                    </div>
                     <canvas id="workChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 作業記録リスト -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h2>作業記録</h2>
+                    <div id="workRecords" class="list-group">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -95,39 +151,207 @@
             updateTimer();
         });
 
-        // 統計グラフの描画
-        fetch('/stats')
-            .then(response => response.json())
-            .then(data => {
-                const ctx = document.getElementById('workChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'pie',
-                    data: {
-                        labels: Object.keys(data.daily_times),
-                        datasets: [{
-                            data: Object.values(data.daily_times),
-                            backgroundColor: [
-                                '#FF6384',
-                                '#36A2EB',
-                                '#FFCE56',
-                                '#4BC0C0',
-                                '#9966FF',
-                                '#FF9F40',
-                                '#FF6384'
-                            ]
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: `週間合計作業時間: ${data.total_time}分`
+        // IFTTT Webhooksへの送信
+        document.getElementById('sendToIFTTT').addEventListener('click', function() {
+            const duration = document.getElementById('duration').value;
+            const description = document.getElementById('description').value;
+            const iftttKey = document.getElementById('iftttKey').value;
+            const iftttEvent = document.getElementById('iftttEvent').value;
+            
+            if (!duration || !description || !iftttKey || !iftttEvent) {
+                alert('すべての項目を入力してください');
+                return;
+            }
+            
+            const webhookUrl = `https://maker.ifttt.com/trigger/${iftttEvent}/with/key/${iftttKey}`;
+            
+            fetch(webhookUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    value1: duration,
+                    value2: description
+                }),
+            })
+            .then(response => {
+                if (response.ok) {
+                    alert('IFTTTにデータを送信しました！ツイートが投稿されます。');
+                    // データを更新
+                    loadWorkData();
+                } else {
+                    alert('IFTTT送信エラー: ' + response.statusText);
+                }
+            })
+            .catch(error => {
+                alert('IFTTT送信エラー: ' + error);
+            });
+        });
+
+        // 作業データの読み込み
+        function loadWorkData() {
+            const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+            
+            document.getElementById('workRecords').innerHTML = `
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            `;
+            
+            fetch(`/stats?source=${dataSource}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('データ取得エラー: ' + data.error);
+                        return;
+                    }
+                    
+                    // 総作業時間の表示
+                    const hours = Math.floor(data.total_time / 60);
+                    const minutes = data.total_time % 60;
+                    document.getElementById('totalTime').textContent = 
+                        `総作業時間: ${hours}時間 ${minutes}分`;
+                    
+                    // 円グラフの描画
+                    renderChart(data);
+                    
+                    // 作業記録リストの表示
+                    renderWorkRecords(data);
+                })
+                .catch(error => {
+                    alert('データ取得エラー: ' + error);
+                });
+        }
+        
+        // 円グラフの描画
+        let workChart = null;
+        function renderChart(data) {
+            const ctx = document.getElementById('workChart').getContext('2d');
+            
+            // 既存のチャートを破棄
+            if (workChart) {
+                workChart.destroy();
+            }
+            
+            const labels = Object.keys(data.daily_times);
+            const values = Object.values(data.daily_times);
+            
+            // 日付を読みやすい形式に変換
+            const formattedLabels = labels.map(date => {
+                const dateObj = new Date(date);
+                return dateObj.toLocaleDateString('ja-JP', { 
+                    month: 'short', 
+                    day: 'numeric',
+                    weekday: 'short'
+                });
+            });
+            
+            workChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: formattedLabels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#FF6384'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '日別作業時間'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const hours = Math.floor(context.raw / 60);
+                                    const minutes = context.raw % 60;
+                                    return `${hours}時間 ${minutes}分 (${context.raw}分)`;
+                                }
                             }
                         }
                     }
+                }
+            });
+        }
+        
+        // 作業記録リストの表示
+        function renderWorkRecords(data) {
+            const recordsContainer = document.getElementById('workRecords');
+            recordsContainer.innerHTML = '';
+            
+            if (!data.daily_texts || Object.keys(data.daily_texts).length === 0) {
+                recordsContainer.innerHTML = '<p class="text-center">データがありません</p>';
+                return;
+            }
+            
+            // 日付でソート（新しい順）
+            const sortedDates = Object.keys(data.daily_texts).sort().reverse();
+            
+            sortedDates.forEach(date => {
+                const texts = data.daily_texts[date];
+                const dateObj = new Date(date);
+                const formattedDate = dateObj.toLocaleDateString('ja-JP', { 
+                    year: 'numeric',
+                    month: 'short', 
+                    day: 'numeric',
+                    weekday: 'short'
+                });
+                
+                const dateHeader = document.createElement('div');
+                dateHeader.className = 'list-group-item list-group-item-secondary';
+                dateHeader.innerHTML = `<strong>${formattedDate}</strong> - ${data.daily_times[date]}分`;
+                recordsContainer.appendChild(dateHeader);
+                
+                texts.forEach(text => {
+                    const textItem = document.createElement('div');
+                    textItem.className = 'list-group-item';
+                    textItem.textContent = text;
+                    recordsContainer.appendChild(textItem);
                 });
             });
+        }
+        
+        // データソース切り替え処理
+        document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
+            radio.addEventListener('change', loadWorkData);
+        });
+        
+        // データ更新ボタン
+        document.getElementById('refreshData').addEventListener('click', loadWorkData);
+        
+        // ローカルストレージからIFTTTキーを読み込み
+        window.addEventListener('load', function() {
+            const savedKey = localStorage.getItem('iftttKey');
+            const savedEvent = localStorage.getItem('iftttEvent');
+            
+            if (savedKey) {
+                document.getElementById('iftttKey').value = savedKey;
+            }
+            
+            if (savedEvent) {
+                document.getElementById('iftttEvent').value = savedEvent;
+            }
+            
+            // 初期データ読み込み
+            loadWorkData();
+        });
+        
+        // IFTTTキーの保存
+        document.getElementById('iftttKey').addEventListener('change', function() {
+            localStorage.setItem('iftttKey', this.value);
+        });
+        
+        document.getElementById('iftttEvent').addEventListener('change', function() {
+            localStorage.setItem('iftttEvent', this.value);
+        });
     </script>
 </body>
 </html>
